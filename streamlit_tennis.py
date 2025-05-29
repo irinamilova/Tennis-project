@@ -7,6 +7,8 @@ import joblib
 from datetime import datetime
 from sklearn.preprocessing import PolynomialFeatures
 import altair as alt
+from sklearn.preprocessing import LabelEncoder
+
 
 # Инициализация сессии
 if "predictions" not in st.session_state:
@@ -37,15 +39,16 @@ FEATURES_ORDER_XGBOOST = [
 # Заголовок приложения
 st.title("Теннисный предсказатель победителя (Lasso, XGBoost, CatBoost)")
 
-# Функция для загрузки датасета
 @st.cache_data
 def load_data():
     try:
         data = pd.read_csv("tennis_data.csv")
-        return data
+        # Извлекаем уникальные страны из столбцов player_1_flag и player_2_flag
+        unique_flags = pd.concat([data['pl1_flag'], data['pl2_flag']]).dropna().unique()
+        return data, unique_flags
     except FileNotFoundError:
         st.error("Датасет 'tennis_data.csv' не найден. Пожалуйста, загрузите файл.")
-        return None
+        return None, None
 
 # Функции для загрузки моделей
 @st.cache_resource
@@ -76,12 +79,16 @@ def load_catboost_model():
 lasso_model = load_lasso_model()
 xgboost_model = load_xgboost_model()
 catboost_model = load_catboost_model()
-data = load_data()
+data, unique_flags = load_data()
 
 if all(model is None for model in [lasso_model, xgboost_model, catboost_model]) or data is None:
     st.stop()
 
-# Сайдбар для ввода данных
+
+# Инициализация LabelEncoder для стран
+flag_encoder = LabelEncoder()
+flag_encoder.fit(unique_flags)
+
 st.sidebar.header("Параметры матча")
 player_1_rank = st.sidebar.number_input("Ранг игрока 1", min_value=1, max_value=1000, value=50)
 player_2_rank = st.sidebar.number_input("Ранг игрока 2", min_value=1, max_value=1000, value=60)
@@ -98,8 +105,8 @@ court = st.sidebar.selectbox("Тип корта", ["Indoor", "Outdoor"], index=1
 series = st.sidebar.selectbox("Серия турнира", ["ATP250", "ATP500", "Masters", "Grand Slam"], index=0)
 round = st.sidebar.selectbox("Раунд", ["1st Round", "2nd Round", "3rd Round", "Quarterfinals", "Semifinals", "Final"], index=0)
 best_of = st.sidebar.number_input("Best of (3 или 5)", min_value=3, max_value=5, value=3, step=2)
-player_1_flag = st.sidebar.text_input("Страна игрока 1 (код, например, USA)", value="USA")
-player_2_flag = st.sidebar.text_input("Страна игрока 2 (код, например, ESP)", value="ESP")
+player_1_flag = st.sidebar.selectbox("Страна игрока 1", unique_flags, index=list(unique_flags).index("USA") if "USA" in unique_flags else 0)
+player_2_flag = st.sidebar.selectbox("Страна игрока 2", unique_flags, index=list(unique_flags).index("ESP") if "ESP" in unique_flags else 0)
 year = st.sidebar.number_input("Год матча", min_value=2000, max_value=2025, value=2023)
 
 # Раздел с коэффициентами букмекеров
@@ -145,37 +152,30 @@ else:
 # Раздел с вероятностью победы игрока (по данным букмекеров)
 st.header("Вероятность победы игрока (по данным букмекеров)")
 if not filtered_data.empty and 'AvgW' in filtered_data.columns and 'AvgL' in filtered_data.columns:
-    # Преобразование коэффициентов в числа
-    filtered_data['AvgW'] = pd.to_numeric(filtered_data['AvgW'], errors='coerce')
-    filtered_data['AvgL'] = pd.to_numeric(filtered_data['AvgL'], errors='coerce')
-    
-    # Вычисление средних коэффициентов
     avg_w = filtered_data['AvgW'].mean()
     avg_l = filtered_data['AvgL'].mean()
     
     if not pd.isna(avg_w) and not pd.isna(avg_l) and avg_w > 0 and avg_l > 0:
-        # Вычисление вероятности победы игрока 1
         implied_prob_p1 = (1 / avg_w) / (1 / avg_w + 1 / avg_l)
         implied_prob_p2 = 1 - implied_prob_p1
         
         st.write(f"Вероятность победы игрока 1 (по средним коэффициентам букмекеров): **{implied_prob_p1:.2f}**")
         st.write(f"Вероятность победы игрока 2 (по средним коэффициентам букмекеров): **{implied_prob_p2:.2f}**")
         
-        # Создаем DataFrame для Altair
         chart_data = pd.DataFrame({
             "Player": ["Player 1", "Player 2"],
             "Вероятность": [implied_prob_p1, implied_prob_p2]
         })
         
-        # Создаем график с Altair
         chart = alt.Chart(chart_data).mark_bar().encode(
             x=alt.X("Player", title=""),
             y=alt.Y("Вероятность", title="Вероятность"),
-            color=alt.Color("Player", legend=None)
-        ).properties(
-            width="container"
+            color=alt.Color("Player", scale=alt.Scale(domain=["Player 1", "Player 2"], range=["#1f77b4", "#ff7f0e"]))
+        ).properties(width="container")
+        text = chart.mark_text(align="center", baseline="bottom", dy=-5).encode(
+            text=alt.Text("Вероятность", format=".2f")
         )
-        st.altair_chart(chart, use_container_width=True)
+        st.altair_chart(chart + text, use_container_width=True)
     else:
         st.write("Невозможно вычислить вероятность: данные о средних коэффициентах отсутствуют или некорректны.")
 else:
@@ -184,6 +184,14 @@ else:
 st.write("Выберите модель для предсказания победы первого игрока.")
 # Выбор модели
 model_choice = st.selectbox("Выберите модель", ["Lasso", "XGBoost", "CatBoost"])
+
+# Валидация порядка признаков
+def validate_features(input_df, expected_features):
+    missing = [f for f in expected_features if f not in input_df.columns]
+    if missing:
+        st.error(f"Missing features: {', '.join(missing)}")
+        return False
+    return True
 
 # Подготовка данных для предсказания
 rank_diff = player_1_rank - player_2_rank
@@ -215,7 +223,7 @@ for col in ["court_Indoor", "court_Outdoor"]:
     interaction_features[f"rank_{col}_interaction"] = court_dummies[col].iloc[0] * rank_diff
     interaction_features[f"custom_rank_{col}_interaction"] = court_dummies[col].iloc[0] * rank_diff
 
-# Полиномиальные признаки (для Lasso и XGBoost)
+# Полиномиальные признаки
 poly = PolynomialFeatures(degree=2, include_bias=False, interaction_only=False)
 poly_features = poly.fit_transform(pd.DataFrame({
     "height_diff": [height_diff],
@@ -230,9 +238,12 @@ poly_df = pd.DataFrame(poly_features, columns=poly_columns)
 hand_mapping = {"Right": 0, "Left": 1, "Right-Handed": 0, "Left-Handed": 1}
 series_mapping = {"ATP250": 0, "ATP500": 1, "Masters": 2, "Grand Slam": 3}
 round_mapping = {"1st Round": 0, "2nd Round": 1, "3rd Round": 2, "Quarterfinals": 3, "Semifinals": 4, "Final": 5}
-flag_mapping = {"USA": 0, "ESP": 1}
 surface_mapping = {"Hard": 0, "Clay": 1, "Grass": 2, "Carpet": 3}
 court_mapping = {"Indoor": 0, "Outdoor": 1}
+
+# Кодируем страны с помощью LabelEncoder
+player_1_flag_encoded = flag_encoder.transform([player_1_flag])[0]
+player_2_flag_encoded = flag_encoder.transform([player_2_flag])[0]
 
 # Формируем входные данные для каждой модели
 input_data_lasso = pd.DataFrame([{
@@ -244,8 +255,8 @@ input_data_lasso = pd.DataFrame([{
     "Surface": surface_mapping[surface],
     "Series": series_mapping[series],
     "Round": round_mapping[round],
-    "player_1_flag": flag_mapping.get(player_1_flag, 0),
-    "player_2_flag": flag_mapping.get(player_2_flag, 1),
+    "player_1_flag": player_1_flag_encoded,
+    "player_2_flag": player_2_flag_encoded,
     "Court": court_mapping[court],
     "height_weight_interaction": height_weight_interaction,
     "rank_surface_Carpet_interaction": interaction_features["rank_surface_Carpet_interaction"],
@@ -274,8 +285,8 @@ input_data_catboost = pd.DataFrame([{
     "Surface": surface_mapping[surface],
     "Series": series_mapping[series],
     "Round": round_mapping[round],
-    "player_1_flag": flag_mapping.get(player_1_flag, 0),
-    "player_2_flag": flag_mapping.get(player_2_flag, 1),
+    "player_1_flag": player_1_flag_encoded,
+    "player_2_flag": player_2_flag_encoded,
     "Court": court_mapping[court],
     "height_weight_interaction": height_weight_interaction,
     "custom_log_rank_diff": custom_log_rank_diff,
@@ -297,8 +308,8 @@ input_data_xgboost = pd.DataFrame([{
     "Surface": surface_mapping[surface],
     "Series": series_mapping[series],
     "Round": round_mapping[round],
-    "player_1_flag": flag_mapping.get(player_1_flag, 0),
-    "player_2_flag": flag_mapping.get(player_2_flag, 1),
+    "player_1_flag": player_1_flag_encoded,
+    "player_2_flag": player_2_flag_encoded,
     "Court": court_mapping[court],
     "height_weight_interaction": height_weight_interaction,
     "rank_surface_Carpet_interaction": interaction_features["rank_surface_Carpet_interaction"],
@@ -356,6 +367,53 @@ if st.button("Предсказать"):
         st.altair_chart(chart, use_container_width=True)
     else:
         st.error("Выбранная модель недоступна.")
+
+# [MODIFIED] Сравнение всех моделей с заранее известными метриками
+if st.checkbox("Сравнить все модели"):
+    predictions = {}
+    
+    if lasso_model and validate_features(input_data_lasso, FEATURES_ORDER_LASSO):
+        predictions["Lasso"] = lasso_model.predict_proba(input_data_lasso)[:, 1][0]
+    
+    if xgboost_model and validate_features(input_data_xgboost, FEATURES_ORDER_XGBOOST):
+        predictions["XGBoost"] = xgboost_model.predict_proba(input_data_xgboost)[:, 1][0]
+    
+    if catboost_model and validate_features(input_data_catboost, FEATURES_ORDER_CATBOOST):
+        predictions["CatBoost"] = catboost_model.predict_proba(input_data_catboost)[:, 1][0]
+    
+    if predictions:
+        # [NEW] Используем статические метрики
+        metrics = {
+            "Lasso": {"Accuracy": 0.64, "F1": 0.64, "AUC": 0.69},
+            "XGBoost": {"Accuracy": 0.65, "F1": 0.65, "AUC": 0.71},
+            "CatBoost": {"Accuracy": 0.66, "F1": 0.65, "AUC": 0.71}
+        }
+        
+        comparison_df = pd.DataFrame({
+            "Model": list(predictions.keys()),
+            "Probability": list(predictions.values()),
+            "Accuracy": [metrics[model]["Accuracy"] for model in predictions.keys()],
+            "F1": [metrics[model]["F1"] for model in predictions.keys()],
+            "AUC": [metrics[model]["AUC"] for model in predictions.keys()]
+        })
+        st.write("Сравнение моделей:")
+        st.table(comparison_df.style.format({
+            "Probability": "{:.2f}",
+            "Accuracy": "{:.2f}",
+            "F1": "{:.2f}",
+            "AUC": "{:.2f}"
+        }))
+        
+        # [MODIFIED] Chart with fixed model order: Lasso, XGBoost, CatBoost
+        chart = alt.Chart(comparison_df).mark_bar().encode(
+            x=alt.X("Model", title="Model", sort=["Lasso", "XGBoost", "CatBoost"]),
+            y=alt.Y("Probability", title="Probability"),
+            color=alt.Color("Model", scale=alt.Scale(scheme="category10"))
+        ).properties(width="container")
+        text = chart.mark_text(align="center", baseline="bottom", dy=-5).encode(
+            text=alt.Text("Probability", format=".2f")
+        )
+        st.altair_chart(chart + text, use_container_width=True)
 
 # История предсказаний
 st.header("История предсказаний")
@@ -436,8 +494,8 @@ if uploaded_file is not None:
     df["Court"] = df["Court"].map(court_mapping).fillna(1)
     df["Series"] = df["Series"].map(series_mapping).fillna(0)
     df["Round"] = df["Round"].map(round_mapping).fillna(0)
-    df["player_1_flag"] = df["player_1_flag"].map(flag_mapping).fillna(0)
-    df["player_2_flag"] = df["player_2_flag"].map(flag_mapping).fillna(1)
+    df["player_1_flag"] = df["player_1_flag"].map(flag_encoder).fillna(0)
+    df["player_2_flag"] = df["player_2_flag"].map(flag_encoder).fillna(1)
     
     # Формируем входные данные
     df_input_lasso = pd.DataFrame({
