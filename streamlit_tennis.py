@@ -446,10 +446,10 @@ if st.checkbox("Сравнить все модели"):
     
     if predictions:
         metrics = {
-            "Lasso": {"Accuracy": 0.64, "F1": 0.64, "AUC": 0.69},
-            "XGBoost": {"Accuracy": 0.65, "F1": 0.65, "AUC": 0.71},
-            "CatBoost": {"Accuracy": 0.66, "F1": 0.65, "AUC": 0.71},
-            "CatBoost Extended": {"Accuracy": 0.75, "F1": 0.74, "AUC": 0.84}
+            "Lasso": {"Accuracy": 0.65, "F1": 0.66, "AUC": 0.69},
+            "XGBoost": {"Accuracy": 0.66, "F1": 0.65, "AUC": 0.72},
+            "CatBoost": {"Accuracy": 0.66, "F1": 0.66, "AUC": 0.72},
+            "CatBoost Extended": {"Accuracy": 0.75, "F1": 0.75, "AUC": 0.85}
         }
         
         comparison_df = pd.DataFrame({
