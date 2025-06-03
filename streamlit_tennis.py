@@ -10,11 +10,11 @@ import altair as alt
 import warnings
 warnings.filterwarnings('ignore')
 
-# Инициализация сессии
+# Initialize session
 if "predictions" not in st.session_state:
     st.session_state.predictions = []
 
-# Ожидаемые порядки признаков
+# Expected feature orders
 FEATURES_ORDER_LASSO = [
     'year_pro_diff', 'best_of', 'year', 'player_1_hand', 'player_2_hand', 'Surface', 'Series', 'Round', 'player_1_flag', 'player_2_flag', 'Court',
     'height_weight_interaction', 'rank_surface_Carpet_interaction', 'rank_surface_Clay_interaction', 'rank_surface_Grass_interaction', 'rank_surface_Hard_interaction',
@@ -44,8 +44,8 @@ FEATURES_ORDER_CATBOOST_EXTENDED = [
     'custom_rank_surface_Grass_interaction', 'custom_rank_surface_Hard_interaction', 'custom_rank_court_Indoor_interaction', 'custom_rank_court_Outdoor_interaction'
 ]
 
-# Заголовок приложения
-st.title("Предсказание исходов теннисных матчей")
+# Application title
+st.title("Tennis Match Outcome Prediction")
 
 @st.cache_data
 def load_data():
@@ -54,16 +54,16 @@ def load_data():
         unique_flags = pd.concat([data['pl1_flag'], data['pl2_flag']]).dropna().unique()
         return data, unique_flags
     except FileNotFoundError:
-        st.error("Датасет 'tennis_data.csv' не найден. Пожалуйста, загрузите файл.")
+        st.error("The dataset 'tennis_data.csv' was not found. Please upload the file.")
         return None, None
 
-# Функции для загрузки моделей
+# Functions for loading models
 @st.cache_resource
 def load_lasso_model():
     try:
         return joblib.load("lasso_model.pkl")
     except FileNotFoundError:
-        st.error("Модель Lasso не найдена. Сохраните её как 'lasso_model.pkl'.")
+        st.error("Lasso model not found. Save it as 'lasso_model.pkl'.")
         return None
 
 @st.cache_resource
@@ -71,7 +71,7 @@ def load_xgboost_model():
     try:
         return joblib.load("xgboost_model.pkl")
     except FileNotFoundError:
-        st.error("Модель XGBoost не найдена. Сохраните её как 'xgboost_model.pkl'.")
+        st.error("XGBoost model not found. Save it as 'xgboost_model.pkl'.")
         return None
 
 @st.cache_resource
@@ -79,7 +79,7 @@ def load_catboost_model():
     try:
         return CatBoostClassifier().load_model("catboost_model.cbm")
     except FileNotFoundError:
-        st.error("Модель CatBoost не найдена. Сохраните её как 'catboost_model.cbm'.")
+        st.error("CatBoost model not found. Save it as 'catboost_model.cbm'.")
         return None
 
 @st.cache_resource
@@ -87,10 +87,10 @@ def load_catboost_extended_model():
     try:
         return CatBoostClassifier().load_model("catboost_extended_model.cbm")
     except FileNotFoundError:
-        st.error("Модель CatBoost Extended не найдена. Сохраните её как 'catboost_extended_model.cbm'.")
+        st.error("CatBoost Extended model not found. Save it as 'catboost_extended_model.cbm'.")
         return None
 
-# Загрузка моделей и данных
+# Load models and data
 lasso_model = load_lasso_model()
 xgboost_model = load_xgboost_model()
 catboost_model = load_catboost_model()
@@ -100,42 +100,42 @@ data, unique_flags = load_data()
 if all(model is None for model in [lasso_model, xgboost_model, catboost_model, catboost_extended_model]) or data is None:
     st.stop()
 
-# Инициализация LabelEncoder для стран
+# Initialize LabelEncoder for countries
 flag_encoder = LabelEncoder()
 flag_encoder.fit(unique_flags)
 
-# Боковая панель для ввода параметров
-st.sidebar.header("Параметры матча")
-player_1_rank = st.sidebar.number_input("Ранг игрока 1", min_value=1, max_value=1000, value=50)
-player_2_rank = st.sidebar.number_input("Ранг игрока 2", min_value=1, max_value=1000, value=60)
-player_1_height = st.sidebar.number_input("Рост игрока 1 (см)", min_value=150, max_value=220, value=185)
-player_2_height = st.sidebar.number_input("Рост игрока 2 (см)", min_value=150, max_value=220, value=180)
-player_1_weight = st.sidebar.number_input("Вес игрока 1 (кг)", min_value=50, max_value=150, value=80)
-player_2_weight = st.sidebar.number_input("Вес игрока 2 (кг)", min_value=50, max_value=150, value=75)
-player_1_year_pro = st.sidebar.number_input("Год начала карьеры игрока 1", min_value=1980, max_value=2025, value=2015)
-player_2_year_pro = st.sidebar.number_input("Год начала карьеры игрока 2", min_value=1980, max_value=2025, value=2015)
-player_1_hand = st.sidebar.selectbox("Рука игрока 1", ["Right", "Left"], index=0)
-player_2_hand = st.sidebar.selectbox("Рука игрока 2", ["Right", "Left"], index=0)
-surface = st.sidebar.selectbox("Покрытие", ["Hard", "Clay", "Grass", "Carpet"], index=0)
-court = st.sidebar.selectbox("Тип корта", ["Indoor", "Outdoor"], index=1)
-series = st.sidebar.selectbox("Серия турнира", ["ATP250", "ATP500", "Masters", "Grand Slam"], index=0)
-round = st.sidebar.selectbox("Раунд", ["1st Round", "2nd Round", "3rd Round", "Quarterfinals", "Semifinals", "Final"], index=0)
-best_of = st.sidebar.number_input("Best of (3 или 5)", min_value=3, max_value=5, value=3, step=2)
-player_1_flag = st.sidebar.selectbox("Страна игрока 1", unique_flags, index=list(unique_flags).index("USA") if "USA" in unique_flags else 0)
-player_2_flag = st.sidebar.selectbox("Страна игрока 2", unique_flags, index=list(unique_flags).index("ESP") if "ESP" in unique_flags else 0)
-year = st.sidebar.number_input("Год матча", min_value=2000, max_value=2025, value=2023)
+# Sidebar for input parameters
+st.sidebar.header("Match Parameters")
+player_1_rank = st.sidebar.number_input("Player 1 Rank", min_value=1, max_value=1000, value=50)
+player_2_rank = st.sidebar.number_input("Player 2 Rank", min_value=1, max_value=1000, value=60)
+player_1_height = st.sidebar.number_input("Player 1 Height (cm)", min_value=150, max_value=220, value=185)
+player_2_height = st.sidebar.number_input("Player 2 Height (cm)", min_value=150, max_value=220, value=180)
+player_1_weight = st.sidebar.number_input("Player 1 Weight (kg)", min_value=50, max_value=150, value=80)
+player_2_weight = st.sidebar.number_input("Player 2 Weight (kg)", min_value=50, max_value=150, value=75)
+player_1_year_pro = st.sidebar.number_input("Player 1 Pro Year", min_value=1980, max_value=2025, value=2015)
+player_2_year_pro = st.sidebar.number_input("Player 2 Pro Year", min_value=1980, max_value=2025, value=2015)
+player_1_hand = st.sidebar.selectbox("Player 1 Hand", ["Right", "Left"], index=0)
+player_2_hand = st.sidebar.selectbox("Player 2 Hand", ["Right", "Left"], index=0)
+surface = st.sidebar.selectbox("Surface", ["Hard", "Clay", "Grass", "Carpet"], index=0)
+court = st.sidebar.selectbox("Court Type", ["Indoor", "Outdoor"], index=1)
+series = st.sidebar.selectbox("Tournament Series", ["ATP250", "ATP500", "Masters", "Grand Slam"], index=0)
+round = st.sidebar.selectbox("Round", ["1st Round", "2nd Round", "3rd Round", "Quarterfinals", "Semifinals", "Final"], index=0)
+best_of = st.sidebar.number_input("Best of (3 or 5)", min_value=3, max_value=5, value=3, step=2)
+player_1_flag = st.sidebar.selectbox("Player 1 Country", unique_flags, index=list(unique_flags).index("USA") if "USA" in unique_flags else 0)
+player_2_flag = st.sidebar.selectbox("Player 2 Country", unique_flags, index=list(unique_flags).index("ESP") if "ESP" in unique_flags else 0)
+year = st.sidebar.number_input("Match Year", min_value=2000, max_value=2025, value=2023)
 
-# Ввод букмекерских коэффициентов для CatBoost Extended
-st.sidebar.header("Букмекерские коэффициенты (для CatBoost Extended)")
-player_1_b365 = st.sidebar.number_input("Коэффициент B365 игрока 1", min_value=1.01, max_value=100.0, value=1.80)
-player_2_b365 = st.sidebar.number_input("Коэффициент B365 игрока 2", min_value=1.01, max_value=100.0, value=2.00)
-player_1_avg = st.sidebar.number_input("Средний коэффициент игрока 1", min_value=1.01, max_value=100.0, value=1.85)
-player_2_avg = st.sidebar.number_input("Средний коэффициент игрока 2", min_value=1.01, max_value=100.0, value=1.95)
+# Input betting odds for CatBoost Extended
+st.sidebar.header("Betting Odds (for CatBoost Extended)")
+player_1_b365 = st.sidebar.number_input("Player 1 B365 Odds", min_value=1.01, max_value=100.0, value=1.80)
+player_2_b365 = st.sidebar.number_input("Player 2 B365 Odds", min_value=1.01, max_value=100.0, value=2.00)
+player_1_avg = st.sidebar.number_input("Player 1 Average Odds", min_value=1.01, max_value=100.0, value=1.85)
+player_2_avg = st.sidebar.number_input("Player 2 Average Odds", min_value=1.01, max_value=100.0, value=1.95)
 
-st.header("Букмекерская информация")
-if st.button("Показать букмекерские коэффициенты и вероятности"):
-    with st.expander("Обзор букмекерских коэффициентов"):
-        st.write("Средние коэффициенты для матчей с выбранным покрытием и типом корта:")
+st.header("Betting Information")
+if st.button("Show Betting Odds and Probabilities"):
+    with st.expander("Overview of Betting Odds"):
+        st.write("Average odds for matches with the selected surface and court type:")
         filtered_data = data[(data['Surface'] == surface) & (data['Court'] == court)]
         if not filtered_data.empty:
             odds_columns = {
@@ -164,11 +164,11 @@ if st.button("Показать букмекерские коэффициенты
                 odds_df = pd.DataFrame(odds_data)
                 st.table(odds_df.style.format({"Odds for Player 1": "{:.2f}", "Odds for Player 2": "{:.2f}"}))
             else:
-                st.write("Данные о коэффициентах недоступны для выбранных параметров.")
+                st.write("Betting odds data unavailable for the selected parameters.")
         else:
-            st.write("Данные о коэффициентах недоступны для выбранных параметров.")
+            st.write("Betting odds data unavailable for the selected parameters.")
     
-    with st.expander("Вероятность победы (букмекеры)"):
+    with st.expander("Win Probability (Bookmakers)"):
         if not filtered_data.empty and 'AvgW' in filtered_data.columns and 'AvgL' in filtered_data.columns:
             avg_w = filtered_data['AvgW'].mean()
             avg_l = filtered_data['AvgL'].mean()
@@ -177,41 +177,41 @@ if st.button("Показать букмекерские коэффициенты
                 implied_prob_p1 = (1 / avg_w) / (1 / avg_w + 1 / avg_l)
                 implied_prob_p2 = 1 - implied_prob_p1
                 
-                st.write(f"Вероятность победы игрока 1: **{implied_prob_p1:.2f}**")
-                st.write(f"Вероятность победы игрока 2: **{implied_prob_p2:.2f}**")
+                st.write(f"Player 1 Win Probability: **{implied_prob_p1:.2f}**")
+                st.write(f"Player 2 Win Probability: **{implied_prob_p2:.2f}**")
                 
                 chart_data = pd.DataFrame({
                     "Player": ["Player 1", "Player 2"],
-                    "Вероятность": [implied_prob_p1, implied_prob_p2]
+                    "Probability": [implied_prob_p1, implied_prob_p2]
                 })
                 
                 chart = alt.Chart(chart_data).mark_bar().encode(
                     x=alt.X("Player", title=""),
-                    y=alt.Y("Вероятность", title="Вероятность"),
+                    y=alt.Y("Probability", title="Probability"),
                     color=alt.Color("Player", scale=alt.Scale(domain=["Player 1", "Player 2"], range=["#1f77b4", "#ff7f0e"]))
                 ).properties(width="container")
                 text = chart.mark_text(align="center", baseline="bottom", dy=-5).encode(
-                    text=alt.Text("Вероятность", format=".2f")
+                    text=alt.Text("Probability", format=".2f")
                 )
                 st.altair_chart(chart + text, use_container_width=True)
             else:
-                st.write("Невозможно вычислить вероятность: данные о коэффициентах отсутствуют.")
+                st.write("Unable to calculate probability: odds data is missing.")
         else:
-            st.write("Данные о средних коэффициентах недоступны.")
+            st.write("Average odds data unavailable.")
 
-# Выбор модели
-st.header("Выберите модель для предсказания победы первого игрока.")
-model_choice = st.selectbox("Выберите модель", ["Lasso", "XGBoost", "CatBoost", "CatBoost Extended"])
+# Model selection
+st.header("Select a Model to Predict Player 1's Win")
+model_choice = st.selectbox("Choose a Model", ["Lasso", "XGBoost", "CatBoost", "CatBoost Extended"])
 
-# Валидация порядка признаков
+# Feature order validation
 def validate_features(input_df, expected_features):
     missing = [f for f in expected_features if f not in input_df.columns]
     if missing:
-        st.error(f"Отсутствуют признаки: {', '.join(missing)}")
+        st.error(f"Missing features: {', '.join(missing)}")
         return False
     return True
 
-# Подготовка данных для предсказания
+# Prepare data for prediction
 rank_diff = player_1_rank - player_2_rank
 height_diff = player_1_height - player_2_height
 weight_diff = player_1_weight - player_2_weight
@@ -228,7 +228,7 @@ log_avg_ratio = np.log1p(player_1_avg / player_2_avg)
 bet_rank_interaction_b365 = bet_diff_b365 * rank_diff
 bet_rank_interaction_avg = bet_diff_avg * rank_diff
 
-# Dummy-переменные для Surface и Court
+# Dummy variables for Surface and Court
 surface_dict = {
     "Hard": [1, 0, 0, 0],
     "Clay": [0, 1, 0, 0],
@@ -240,7 +240,7 @@ surface_dummies = pd.DataFrame([surface_dict.get(surface, [0, 0, 0, 0])],
                               columns=["surface_Hard", "surface_Clay", "surface_Grass", "surface_Carpet"])
 court_dummies = pd.DataFrame([court_dict[court]], columns=["court_Indoor", "court_Outdoor"])
 
-# Взаимодействия
+# Interactions
 interaction_features = {}
 for col in ["surface_Hard", "surface_Clay", "surface_Grass", "surface_Carpet"]:
     interaction_features[f"rank_{col}_interaction"] = surface_dummies[col].iloc[0] * rank_diff
@@ -249,7 +249,7 @@ for col in ["court_Indoor", "court_Outdoor"]:
     interaction_features[f"rank_{col}_interaction"] = court_dummies[col].iloc[0] * rank_diff
     interaction_features[f"custom_rank_{col}_interaction"] = court_dummies[col].iloc[0] * rank_diff
 
-# Полиномиальные признаки
+# Polynomial features
 poly = PolynomialFeatures(degree=2, include_bias=False, interaction_only=False)
 poly_features = poly.fit_transform(pd.DataFrame({
     "height_diff": [height_diff],
@@ -260,7 +260,7 @@ poly_feature_names = poly.get_feature_names_out(["height_diff", "weight_diff", "
 poly_columns = [f"poly_{name.replace(' ', '_')}" for name in poly_feature_names]
 poly_df = pd.DataFrame(poly_features, columns=poly_columns)
 
-# Кодирование категориальных признаков
+# Encoding categorical features
 hand_mapping = {"Right": 0, "Left": 1}
 series_mapping = {"ATP250": 0, "ATP500": 1, "Masters": 2, "Grand Slam": 3}
 round_mapping = {"1st Round": 0, "2nd Round": 1, "3rd Round": 2, "Quarterfinals": 3, "Semifinals": 4, "Final": 5}
@@ -270,7 +270,7 @@ court_mapping = {"Indoor": 0, "Outdoor": 1}
 player_1_flag_encoded = flag_encoder.transform([player_1_flag])[0]
 player_2_flag_encoded = flag_encoder.transform([player_2_flag])[0]
 
-# Формируем входные данные для моделей
+# Form input data for models
 input_data_lasso = pd.DataFrame([{
     "year_pro_diff": year_pro_diff,
     "best_of": best_of,
@@ -388,8 +388,8 @@ input_data_catboost_extended = pd.DataFrame([{
     "custom_rank_court_Outdoor_interaction": interaction_features["custom_rank_court_Outdoor_interaction"]
 }])[FEATURES_ORDER_CATBOOST_EXTENDED]
 
-# Предсказание
-if st.button("Предсказать"):
+# Prediction
+if st.button("Predict"):
     prediction = None
     
     if model_choice == "Lasso" and lasso_model:
@@ -409,27 +409,27 @@ if st.button("Предсказать"):
             "player_2_rank": player_2_rank,
             "probability": prediction
         })
-        st.write(f"Вероятность победы игрока 1 ({model_choice}): **{prediction:.2f}**")
+        st.write(f"Player 1 Win Probability ({model_choice}): **{prediction:.2f}**")
         
         chart_data = pd.DataFrame({
             "Player": ["Player 1", "Player 2"],
-            "Вероятность": [prediction, 1 - prediction]
+            "Probability": [prediction, 1 - prediction]
         })
         
         chart = alt.Chart(chart_data).mark_bar().encode(
             x=alt.X("Player", title=""),
-            y=alt.Y("Вероятность", title="Вероятность"),
+            y=alt.Y("Probability", title="Probability"),
             color=alt.Color("Player", scale=alt.Scale(domain=["Player 1", "Player 2"], range=["#1f77b4", "#ff7f0e"]))
         ).properties(width="container")
         text = chart.mark_text(align="center", baseline="bottom", dy=-5).encode(
-            text=alt.Text("Вероятность", format=".2f")
+            text=alt.Text("Probability", format=".2f")
         )
         st.altair_chart(chart + text, use_container_width=True)
     else:
-        st.error("Выбранная модель недоступна.")
+        st.error("Selected model is unavailable.")
 
-# Сравнение всех моделей
-if st.checkbox("Сравнить все модели"):
+# Compare all models
+if st.checkbox("Compare All Models"):
     predictions = {}
     
     if lasso_model and validate_features(input_data_lasso, FEATURES_ORDER_LASSO):
@@ -459,7 +459,7 @@ if st.checkbox("Сравнить все модели"):
             "F1": [metrics[model]["F1"] for model in predictions.keys()],
             "AUC": [metrics[model]["AUC"] for model in predictions.keys()]
         })
-        st.write("Сравнение моделей:")
+        st.write("Model Comparison:")
         st.table(comparison_df.style.format({
             "Probability": "{:.2f}",
             "Accuracy": "{:.2f}",
@@ -477,21 +477,21 @@ if st.checkbox("Сравнить все модели"):
         )
         st.altair_chart(chart + text, use_container_width=True)
 
-# История предсказаний
-st.header("История предсказаний")
+# Prediction history
+st.header("Prediction History")
 if st.session_state.predictions:
     history_df = pd.DataFrame(st.session_state.predictions)
     st.table(history_df)
 else:
-    st.write("Нет истории предсказаний.")
+    st.write("No prediction history available.")
 
-# Массовое предсказание
-st.header("Массовое предсказание")
-uploaded_file = st.file_uploader("Загрузите CSV-файл с данными", type=["csv"])
+# Batch prediction
+st.header("Batch Prediction")
+uploaded_file = st.file_uploader("Upload a CSV file with data", type=["csv"])
 if uploaded_file is not None:
     df = pd.read_csv(uploaded_file)
 
-    # Переименовываем колонки
+    # Rename columns
     df = df.rename(columns={
         "WRank": "player_1_rank",
         "LRank": "player_2_rank",
@@ -513,10 +513,10 @@ if uploaded_file is not None:
         "AvgL": "player_2_Avg"
     })
     
-    # Извлекаем год
+    # Extract year
     df['year'] = pd.to_datetime(df['Date'], errors='coerce').dt.year.fillna(year)
     
-    # Вычисляем разницы и дополнительные признаки
+    # Calculate differences and additional features
     df["height_diff"] = df["player_1_height"] - df["player_2_height"]
     df["weight_diff"] = df["player_1_weight"] - df["player_2_weight"]
     df["rank_diff"] = df["player_1_rank"] - df["player_2_rank"]
@@ -533,12 +533,12 @@ if uploaded_file is not None:
     df["bet_rank_interaction_B365"] = df["bet_diff_B365"] * df["rank_diff"]
     df["bet_rank_interaction_Avg"] = df["bet_diff_Avg"] * df["rank_diff"]
     
-    # Dummy-переменные
+    # Dummy variables
     surface_dummies = pd.get_dummies(df["surface"].astype(str).fillna("Hard"), prefix="surface")
     court_dummies = pd.get_dummies(df["Court"].astype(str).fillna("Outdoor"), prefix="court")
     df = pd.concat([df, surface_dummies, court_dummies], axis=1)
     
-    # Взаимодействия
+    # Interactions
     for col in surface_dummies.columns:
         df[f"rank_{col}_interaction"] = df["rank_diff"].fillna(0) * df[col]
         df[f"custom_rank_{col}_interaction"] = df["rank_diff"].fillna(0) * df[col]
@@ -546,13 +546,13 @@ if uploaded_file is not None:
         df[f"rank_{col}_interaction"] = df["rank_diff"].fillna(0) * df[col]
         df[f"custom_rank_{col}_interaction"] = df["rank_diff"].fillna(0) * df[col]
     
-    # Полиномиальные признаки
+    # Polynomial features
     df[["height_diff", "weight_diff", "rank_diff"]] = df[["height_diff", "weight_diff", "rank_diff"]].fillna(df[["height_diff", "weight_diff", "rank_diff"]].median())
     poly_features = poly.fit_transform(df[["height_diff", "weight_diff", "rank_diff"]])
     poly_df = pd.DataFrame(poly_features, columns=poly_columns, index=df.index)
     df = pd.concat([df, poly_df], axis=1)
     
-    # Удаляем строки с пропущенными значениями
+    # Remove rows with missing values
     required_columns = [
         "player_1_rank", "player_2_rank", "player_1_height", "player_2_height", 
         "player_1_weight", "player_2_weight", "player_1_year_pro", "player_2_year_pro", 
@@ -563,7 +563,7 @@ if uploaded_file is not None:
         required_columns.extend(["player_1_B365", "player_2_B365", "player_1_Avg", "player_2_Avg"])
     df = df.dropna(subset=required_columns)
     
-    # Кодирование категориальных признаков
+    # Encode categorical features
     df["player_1_hand"] = df["player_1_hand"].replace({np.nan: "Right", "Unknown": "Right"}).map(hand_mapping).fillna(0).astype(int)
     df["player_2_hand"] = df["player_2_hand"].replace({np.nan: "Right", "Unknown": "Right"}).map(hand_mapping).fillna(0).astype(int)
     df["Surface"] = df["surface"].replace({np.nan: "Hard", "Unknown": "Hard"}).map(surface_mapping).fillna(0).astype(int)
@@ -573,7 +573,7 @@ if uploaded_file is not None:
     df["player_1_flag"] = flag_encoder.transform(df["player_1_flag"].fillna("Unknown")).astype(int)
     df["player_2_flag"] = flag_encoder.transform(df["player_2_flag"].fillna("Unknown")).astype(int)
     
-    # Формируем входные данные
+    # Form input data
     df_input_lasso = pd.DataFrame({
         "year_pro_diff": df["year_pro_diff"],
         "best_of": df["best_of"],
@@ -703,16 +703,16 @@ if uploaded_file is not None:
     
     if prediction is not None:
         df["probability"] = prediction
-        st.write("Результаты предсказаний:")
+        st.write("Prediction Results:")
         st.table(df[["player_1_rank", "player_2_rank", "probability"]])
 
-# Важность признаков
-st.header("Важность признаков")
+# Feature importance
+st.header("Feature Importance")
 if model_choice == "Lasso" and lasso_model:
-    # Проверяем, что модель поддерживает coef_
+    # Check if model supports coef_
     try:
         coef = lasso_model.best_estimator_.coef_
-        if coef.ndim == 1:  # Убеждаемся, что коэффициенты одномерные
+        if coef.ndim == 1:  # Ensure coefficients are one-dimensional
             feature_importance = pd.DataFrame({
                 "Feature": FEATURES_ORDER_LASSO,
                 "Importance": np.abs(coef)
@@ -720,11 +720,11 @@ if model_choice == "Lasso" and lasso_model:
         else:
             feature_importance = pd.DataFrame({
                 "Feature": FEATURES_ORDER_LASSO,
-                "Importance": np.abs(coef[0])  # Берем первый набор коэффициентов, если их несколько
+                "Importance": np.abs(coef[0])  # Take the first set of coefficients if multiple
             })
         st.bar_chart(feature_importance.set_index("Feature"))
     except AttributeError:
-        st.write("Модель Lasso не поддерживает отображение важности признаков. Используйте другую модель.")
+        st.write("Lasso model does not support feature importance display. Use a different model.")
 elif model_choice == "XGBoost" and xgboost_model:
     feature_importance = pd.DataFrame({
         "Feature": FEATURES_ORDER_XGBOOST,
@@ -746,6 +746,6 @@ elif model_choice == "CatBoost Extended" and catboost_extended_model:
         feature_importance = feature_importance.sort_values("Importance", ascending=False)
         st.bar_chart(feature_importance.set_index("Feature"))
     except Exception as e:
-        st.error(f"Ошибка при получении важности признаков для CatBoost Extended: {str(e)}")
+        st.error(f"Error retrieving feature importance for CatBoost Extended: {str(e)}")
 else:
-    st.write("Важность признаков недоступна для выбранной модели.")
+    st.write("Feature importance unavailable for the selected model.")
