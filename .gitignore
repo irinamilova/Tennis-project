@@ -1,4 +1,9 @@
 __pycache__/
 
-tennis_data_corr.csv
+.catboost.info
+catboost_extended_model.cbm
+catboost_model.cbm
+lasso_model.pkl
 tennis_data_cleaned.csv
+tennis_data_corrected.csv
+xgboost_model.pkl
